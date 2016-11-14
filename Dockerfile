@@ -1,32 +1,51 @@
-FROM java:openjdk-8-jre
-MAINTAINER JEY
+FROM openjdk:8-jre-alpine
+MAINTAINER Chad Wanderscheid <chad.a.wanderscheid@intel.com>
 
-# The used ZooKeeper version can also be supplied like this with the build command like this:
-# --build-arg BIN_VERSION=zookeeper-3.4.8
-ARG BIN_VERSION=zookeeper-3.4.8
+# Install required packages
+RUN apk add --no-cache \
+    bash \
+    su-exec
 
-WORKDIR /usr/share/zookeeper
+ENV ZOO_USER=zookeeper \
+    ZOO_CONF_DIR=/conf \
+    ZOO_DATA_DIR=/data \
+    ZOO_DATA_LOG_DIR=/datalog \
+    ZOO_PORT=2181 \
+    ZOO_TICK_TIME=2000 \
+    ZOO_INIT_LIMIT=5 \
+    ZOO_SYNC_LIMIT=2
 
-EXPOSE 2181 2888 3888
+# Add a user and make dirs
+RUN set -x \
+    && adduser -D "$ZOO_USER" \
+    && mkdir -p "$ZOO_DATA_LOG_DIR" "$ZOO_DATA_DIR" "$ZOO_CONF_DIR" \
+    && chown "$ZOO_USER:$ZOO_USER" "$ZOO_DATA_LOG_DIR" "$ZOO_DATA_DIR" "$ZOO_CONF_DIR"
 
-# Install and set everything up
-RUN apt-get install -y wget tar
-RUN \
-   wget -q -N http://mirror.dkd.de/apache/zookeeper/$BIN_VERSION/$BIN_VERSION.tar.gz \
-&& tar --strip-components=1 -C /usr/share/zookeeper -xvf ${BIN_VERSION}.tar.gz \
-&& rm $BIN_VERSION.tar.gz \
-&& rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+ARG GPG_KEY=C823E3E5B12AF29C67F81976F5CECB3CB5E9BD2D
+ARG DISTRO_NAME=zookeeper-3.4.9
 
-# default parameters for config file:
-ENV tickTime=2000
-ENV dataDir=/var/lib/zookeeper/
-ENV dataLogDir=/var/log/zookeeper/
-ENV clientPort=2181
-ENV initLimit=5
-ENV syncLimit=2
+# Download Apache Zookeeper, verify its PGP signature, untar and clean up
+RUN set -x \
+    && apk add --no-cache --virtual .build-deps \
+        gnupg \
+    && wget -q "http://www.apache.org/dist/zookeeper/$DISTRO_NAME/$DISTRO_NAME.tar.gz" \
+    && wget -q "http://www.apache.org/dist/zookeeper/$DISTRO_NAME/$DISTRO_NAME.tar.gz.asc" \
+    && export GNUPGHOME="$(mktemp -d)" \
+    && gpg --keyserver ha.pool.sks-keyservers.net --recv-key "$GPG_KEY" \
+    && gpg --batch --verify "$DISTRO_NAME.tar.gz.asc" "$DISTRO_NAME.tar.gz" \
+    && tar -xzf "$DISTRO_NAME.tar.gz" \
+    && mv "$DISTRO_NAME/conf/"* "$ZOO_CONF_DIR" \
+    && rm -r "$GNUPGHOME" "$DISTRO_NAME.tar.gz" "$DISTRO_NAME.tar.gz.asc" \
+    && apk del .build-deps
 
-# add startup script
-ADD entrypoint.sh entrypoint.sh
-RUN chmod +x entrypoint.sh
+WORKDIR $DISTRO_NAME
+VOLUME ["$ZOO_DATA_DIR", "$ZOO_DATA_LOG_DIR", "$ZOO_CONF-DIR"]
 
-ENTRYPOINT ["/usr/share/zookeeper/entrypoint.sh"]
+EXPOSE $ZOO_PORT 2888 3888
+
+ENV PATH=$PATH:/$DISTRO_NAME/bin \
+    ZOOCFGDIR=$ZOO_CONF_DIR
+
+COPY docker-entrypoint.sh /
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["zkServer.sh", "start-foreground"]
