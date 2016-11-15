@@ -1,0 +1,20 @@
+chadw75/docker-zookeeper-cluster
+
+  Build:
+    - echo "...Creating Docker Image..."
+    - docker login -u "DISTELLI_DOCKER_USERNAME" -p 
+    
+  PkgInclude:
+  - "*"
+  
+  PkgExclude:
+  - "entrypoint.sh"
+  
+  Env:
+    # Set Environment Variables here
+    # - PORT:2181
+    
+  
+  Exec:
+    - cd $DISTELLI_INSTALLHOME
+    - sudo /usr/local/bin/docker-compose up
